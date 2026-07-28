@@ -18,6 +18,9 @@ const elements = {
   uploadButton: document.getElementById("upload-button"),
   workbookCount: document.getElementById("workbook-count"),
   workbookList: document.getElementById("workbook-list"),
+  confirmDialog: document.getElementById("confirm-dialog"),
+  confirmTitle: document.getElementById("confirm-title"),
+  confirmMessage: document.getElementById("confirm-message"),
   feedback: document.getElementById("feedback"),
 };
 
@@ -57,6 +60,20 @@ function selectedGroup() {
 
 function currentMode() {
   return document.querySelector('input[name="mode"]:checked').value;
+}
+
+function confirmAction(message, title = "确认删除") {
+  return new Promise((resolve) => {
+    elements.confirmTitle.textContent = title;
+    elements.confirmMessage.textContent = message;
+    elements.confirmDialog.returnValue = "cancel";
+    elements.confirmDialog.addEventListener(
+      "close",
+      () => resolve(elements.confirmDialog.returnValue === "confirm"),
+      { once: true },
+    );
+    elements.confirmDialog.showModal();
+  });
 }
 
 function appendDetail(term, description) {
@@ -301,13 +318,11 @@ async function saveGroupRemark() {
 }
 
 async function deleteWorkbook(workbook) {
-  if (
-    !window.confirm(
-      `确定删除“${workbook.original_filename}”吗？对应查询数据也会删除。`,
-    )
-  ) {
-    return;
-  }
+  const confirmed = await confirmAction(
+    `确定删除“${workbook.original_filename}”吗？对应查询数据也会删除。`,
+  );
+  if (!confirmed) return;
+
   setBusy(true);
   try {
     await bridge.apiPost(`tables/${workbook.id}/delete`, {});
@@ -324,13 +339,11 @@ async function deleteWorkbook(workbook) {
 async function deleteGroup() {
   const group = selectedGroup();
   if (!group) return;
-  if (
-    !window.confirm(
-      `确定删除“${group.group_name}”及其 ${group.workbook_count} 份工作簿吗？此操作不可撤销。`,
-    )
-  ) {
-    return;
-  }
+  const confirmed = await confirmAction(
+    `确定删除“${group.group_name}”及其 ${group.workbook_count} 份工作簿吗？此操作不可撤销。`,
+  );
+  if (!confirmed) return;
+
   setBusy(true);
   try {
     await bridge.apiPost(`groups/${group.id}/delete`, {});

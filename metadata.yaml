@@ -1,7 +1,7 @@
 name: astrbot_plugin_arksupport
 display_name: 明日方舟助战表
 desc: 按群导入 Excel 助战表并查询干员助战提供者。
-version: v0.2.0
+version: v0.2.1
 author: QuanWenG
 repo: https://github.com/QuanWenG/astrbot_plugin_arksupport
 astrbot_version: ">=4.26,<5"

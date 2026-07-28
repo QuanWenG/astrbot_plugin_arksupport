@@ -140,6 +140,22 @@
         </div>
       </section>
 
+      <dialog id="confirm-dialog" class="confirm-dialog">
+        <form method="dialog">
+          <div class="dialog-mark">!</div>
+          <h2 id="confirm-title">确认删除</h2>
+          <p id="confirm-message"></p>
+          <div class="dialog-actions">
+            <button class="button secondary" type="submit" value="cancel">
+              取消
+            </button>
+            <button class="button danger solid" type="submit" value="confirm">
+              确认删除
+            </button>
+          </div>
+        </form>
+      </dialog>
+
       <div id="feedback" class="feedback hidden" role="status"></div>
     </main>
     <script type="module" src="./app.js"></script>
