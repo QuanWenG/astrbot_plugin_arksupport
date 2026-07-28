@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>明日方舟助战表</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">ARKNIGHTS SUPPORT</p>
+          <h1>助战表管理</h1>
+          <p class="subtitle">
+            按群隔离导入 Excel，让群友用 <code>/助战 干员名</code> 找到助战提供者。
+          </p>
+        </div>
+        <button id="refresh-button" class="button secondary" type="button">
+          刷新
+        </button>
+      </header>
+
+      <section class="notice">
+        <span class="notice-mark">1</span>
+        <p>
+          推荐在目标群执行 <code>/助战登记</code>；也可以在下方手动添加群聊 UMO。
+        </p>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <div class="card-heading">
+            <div>
+              <p class="step">STEP 01</p>
+              <h2>选择群</h2>
+            </div>
+            <span id="group-count" class="count">0</span>
+          </div>
+
+          <label for="group-select">已登记群</label>
+          <select id="group-select">
+            <option value="">正在载入…</option>
+          </select>
+          <dl id="group-details" class="details"></dl>
+
+          <div id="remark-editor" class="remark-editor hidden">
+            <label for="group-remark">UMO 备注</label>
+            <div class="input-action">
+              <input
+                id="group-remark"
+                type="text"
+                maxlength="200"
+                placeholder="例如：前浪官服交流群"
+              />
+              <button id="save-remark-button" class="button secondary" type="button">
+                保存备注
+              </button>
+            </div>
+          </div>
+
+          <details class="manual-panel">
+            <summary>手动添加 UMO</summary>
+            <label for="manual-umo">群聊 UMO</label>
+            <input
+              id="manual-umo"
+              type="text"
+              maxlength="512"
+              placeholder="平台实例:GroupMessage:群会话ID"
+            />
+            <label for="manual-remark">备注（可选）</label>
+            <input
+              id="manual-remark"
+              type="text"
+              maxlength="200"
+              placeholder="用于在 WebUI 中辨认该群"
+            />
+            <button id="add-group-button" class="button secondary full" type="button">
+              添加 UMO
+            </button>
+          </details>
+
+          <button id="delete-group-button" class="button danger ghost" type="button">
+            删除群及其全部数据
+          </button>
+        </article>
+
+        <article class="card">
+          <div class="card-heading">
+            <div>
+              <p class="step">STEP 02</p>
+              <h2>导入工作簿</h2>
+            </div>
+            <span class="file-badge">.xlsx</span>
+          </div>
+
+          <fieldset>
+            <legend>导入方式</legend>
+            <label class="radio-row">
+              <input type="radio" name="mode" value="add" checked />
+              <span>
+                <strong>新增</strong>
+                <small>保留当前群已有工作簿</small>
+              </span>
+            </label>
+            <label class="radio-row">
+              <input type="radio" name="mode" value="replace" />
+              <span>
+                <strong>替换</strong>
+                <small>替换下方选中的工作簿</small>
+              </span>
+            </label>
+          </fieldset>
+
+          <div id="replace-field" class="hidden">
+            <label for="replace-select">要替换的工作簿</label>
+            <select id="replace-select"></select>
+          </div>
+
+          <label for="file-input">Excel 文件</label>
+          <input id="file-input" type="file" accept=".xlsx" />
+          <p class="hint">最多 10 MiB；成功导入后仅保留标准化数据。</p>
+
+          <button id="upload-button" class="button primary" type="button">
+            开始导入
+          </button>
+        </article>
+      </section>
+
+      <section class="card workbooks-card">
+        <div class="card-heading">
+          <div>
+            <p class="step">CURRENT DATA</p>
+            <h2>已导入工作簿</h2>
+          </div>
+          <span id="workbook-count" class="count">0</span>
+        </div>
+        <div id="workbook-list" class="workbook-list">
+          <p class="empty">请选择一个群。</p>
+        </div>
+      </section>
+
+      <div id="feedback" class="feedback hidden" role="status"></div>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

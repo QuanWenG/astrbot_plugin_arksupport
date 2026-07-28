@@ -1,0 +1,8 @@
+{
+  "pages": {
+    "management": {
+      "title": "助战表管理",
+      "description": "管理群聊 UMO、备注及对应的明日方舟助战 Excel 工作簿。"
+    }
+  }
+}

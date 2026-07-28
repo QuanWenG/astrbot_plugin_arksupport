@@ -1,14 +1,71 @@
-# astrbot-plugin-helloworld
+# astrbot_plugin_arksupport
 
-AstrBot 插件模板 / A template plugin for AstrBot plugin feature
+按群管理明日方舟助战 Excel 表，并让群友查询“这个干员该找谁借”。
 
-> [!NOTE]
-> This repo is just a template of [AstrBot](https://github.com/AstrBotDevs/AstrBot) Plugin.
-> 
-> [AstrBot](https://github.com/AstrBotDevs/AstrBot) is an agentic assistant for both personal and group conversations. It can be deployed across dozens of mainstream instant messaging platforms, including QQ, Telegram, Feishu, DingTalk, Slack, LINE, Discord, Matrix, etc. In addition, it provides a reliable and extensible conversational AI infrastructure for individuals, developers, and teams. Whether you need a personal AI companion, an intelligent customer support agent, an automation assistant, or an enterprise knowledge base, AstrBot enables you to quickly build AI applications directly within your existing messaging workflows.
+## 功能
 
-# Supports
+- 每个群通过 AstrBot UMO 独立存储，数据不会跨群。
+- 支持群内自动登记，也支持在 WebUI 手动添加群聊 UMO。
+- 可为每个 UMO 设置自定义备注，方便管理员辨认群绑定。
+- 一个群可以导入一份或多份 `.xlsx` 工作簿。
+- 自动识别 `官服`、`B服` 等工作表名称，并按区服展示结果。
+- 自动解析 `账号N`、`练度N`、`群名称N`、`备注N` 编号栏位。
+- 支持新增、指定替换和删除工作簿。
+- 精确查询失败时提供相似干员名建议。
 
-- [AstrBot Repo](https://github.com/AstrBotDevs/AstrBot)
-- [AstrBot Plugin Development Docs (Chinese)](https://docs.astrbot.app/dev/star/plugin-new.html)
-- [AstrBot Plugin Development Docs (English)](https://docs.astrbot.app/en/dev/star/plugin-new.html)
+## 使用方法
+
+1. 推荐在目标群发送：
+
+   ```text
+   /助战登记
+   ```
+
+   也可以在管理页面展开“手动添加 UMO”，填写
+   `平台实例:GroupMessage:群会话ID`。手动添加仅接受群聊 UMO。
+
+2. 登录 AstrBot WebUI，打开插件详情中的“助战表管理”页面。可在群详情中新增或修改 UMO 备注。
+3. 选择已登记群，上传 `.xlsx` 文件；可选择新增或替换已有工作簿。
+4. 在该群查询：
+
+   ```text
+   /助战 风笛
+   /助战 维娜 维多利亚
+   ```
+
+机器人会按区服列出账号、练度、群名称和备注。已知干员没有助战时会明确提示；名称输入有误时会给出相似候选。
+
+## Excel 格式
+
+每个需要导入的工作表必须包含以下表头：
+
+- `稀有度`
+- `职业`
+- `干员名`
+- 至少一个 `账号N`，例如 `账号1`
+
+同编号的以下表头可选：
+
+- `练度N`
+- `群名称N`
+- `备注N`
+
+插件会扫描工作表前 20 行定位表头。工作表名称作为查询结果中的区服名称。文件上限为 10 MiB；导入成功后只保存标准化数据和文件元信息，不保存原始 Excel。
+
+## 数据位置
+
+数据库位于 AstrBot 的：
+
+```text
+data/plugin_data/astrbot_plugin_arksupport/arksupport.sqlite3
+```
+
+删除工作簿会删除对应查询数据；删除已登记群会级联删除该群的全部工作簿数据。
+
+## 兼容性
+
+- AstrBot 4.26.7 及其插件 Pages API
+- Python 3.10+
+- Excel `.xlsx`
+
+解析器直接读取 XLSX 标准数据 XML，不依赖 Excel 样式解析，因此可兼容部分带有非标准样式定义、但数据结构有效的工作簿。
