@@ -1,0 +1,15 @@
+{
+  "enable_llm_fallback": {
+    "type": "bool",
+    "description": "启用 LLM 干员名兜底匹配",
+    "default": false,
+    "hint": "仅在精确匹配失败时调用模型，用于识别同音字、外号和错别字。模型只能从当前群已导入的干员名中选择。"
+  },
+  "llm_fallback_provider_id": {
+    "type": "string",
+    "description": "LLM 兜底模型提供商",
+    "default": "",
+    "_special": "select_provider",
+    "hint": "留空时使用该群当前会话的模型提供商。"
+  }
+}

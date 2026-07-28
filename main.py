@@ -4,6 +4,7 @@ from collections import defaultdict
 from difflib import get_close_matches
 from pathlib import Path
 
+from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.api.web import (
@@ -14,6 +15,10 @@ from astrbot.api.web import (
 )
 from astrbot.core.star.filter.command import GreedyStr
 
+from .arksupport.llm_matcher import (
+    build_operator_match_prompt,
+    parse_operator_match,
+)
 from .arksupport.parser import normalize_operator_name, parse_workbook
 from .arksupport.storage import SupportStore
 
@@ -25,8 +30,13 @@ MAX_QUERY_RESULTS = 20
 class ArkSupportPlugin(Star):
     """Query group-scoped Arknights support workbooks."""
 
-    def __init__(self, context: Context) -> None:
-        super().__init__(context)
+    def __init__(
+        self,
+        context: Context,
+        config: AstrBotConfig | None = None,
+    ) -> None:
+        super().__init__(context, config)
+        self.config = config if config is not None else {}
         data_dir = StarTools.get_data_dir(PLUGIN_NAME)
         self.store = SupportStore(data_dir / "arksupport.sqlite3")
         self.store.initialize()
@@ -137,6 +147,26 @@ class ArkSupportPlugin(Star):
         if result["workbook_count"] == 0:
             yield event.plain_result("本群尚未上传助战表。")
             return
+
+        llm_interpretation = ""
+        if not result["matched_names"]:
+            llm_match = await self._match_operator_with_llm(
+                event,
+                requested_name,
+                result["available_names"],
+            )
+            if llm_match:
+                matched_normalized_name, matched_display_name = llm_match
+                result = await asyncio.to_thread(
+                    self.store.query_operator,
+                    event.unified_msg_origin,
+                    matched_normalized_name,
+                )
+                if result["matched_names"]:
+                    llm_interpretation = (
+                        f"已将“{requested_name}”识别为“{matched_display_name}”。"
+                    )
+
         if not result["matched_names"]:
             catalog: dict[str, list[str]] = defaultdict(list)
             for item in result["available_names"]:
@@ -162,7 +192,10 @@ class ArkSupportPlugin(Star):
             return
         if not result["entries"]:
             display_name = "、".join(result["matched_names"])
-            yield event.plain_result(f"{display_name} 当前没有助战记录。")
+            prefix = f"{llm_interpretation}\n" if llm_interpretation else ""
+            yield event.plain_result(
+                f"{prefix}{display_name} 当前没有助战记录。"
+            )
             return
 
         unique_entries: list[dict] = []
@@ -185,7 +218,10 @@ class ArkSupportPlugin(Star):
             grouped[entry["server"]].append(entry)
 
         display_name = "、".join(result["matched_names"])
-        lines = [f"{display_name} 的助战提供者："]
+        lines = []
+        if llm_interpretation:
+            lines.append(llm_interpretation)
+        lines.append(f"{display_name} 的助战提供者：")
         for server, entries in grouped.items():
             lines.append(f"【{server}】")
             for entry in entries:
@@ -202,6 +238,49 @@ class ArkSupportPlugin(Star):
         if omitted > 0:
             lines.append(f"另有 {omitted} 条结果未展示。")
         yield event.plain_result("\n".join(lines))
+
+    async def _match_operator_with_llm(
+        self,
+        event: AstrMessageEvent,
+        requested_name: str,
+        available_names: list[dict[str, str]],
+    ) -> tuple[str, str] | None:
+        """Use an optional LLM only after deterministic matching has failed."""
+        if not bool(self.config.get("enable_llm_fallback", False)):
+            return None
+        if not available_names:
+            return None
+
+        provider_id = str(
+            self.config.get("llm_fallback_provider_id", "") or ""
+        ).strip()
+        try:
+            if not provider_id:
+                provider_id = await self.context.get_current_chat_provider_id(
+                    event.unified_msg_origin
+                )
+            prompt = build_operator_match_prompt(
+                requested_name,
+                (item["operator_name"] for item in available_names),
+            )
+            response = await self.context.llm_generate(
+                chat_provider_id=provider_id,
+                prompt=prompt,
+                system_prompt=(
+                    "你是严格的名称匹配器。只按用户要求输出 JSON，"
+                    "不得补充说明，不得选择候选列表之外的名称。"
+                ),
+            )
+            return parse_operator_match(
+                response.completion_text,
+                available_names,
+            )
+        except Exception:
+            logger.warning(
+                "LLM 干员名兜底匹配失败，将使用本地相似名称建议。",
+                exc_info=True,
+            )
+            return None
 
     async def web_groups(self):
         """List groups registered by the chat command."""
