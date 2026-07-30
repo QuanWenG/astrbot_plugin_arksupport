@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>明日方舟助战表</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">ARKNIGHTS SUPPORT</p>
+          <h1>群助战表</h1>
+          <p class="subtitle">安全地管理你关联群聊的共享助战工作簿。</p>
+        </div>
+        <div id="session-actions" class="session-actions hidden">
+          <span id="identity"></span>
+          <button id="logout-button" class="button secondary">退出</button>
+        </div>
+      </header>
+
+      <section id="auth-view" class="auth-layout">
+        <article class="card auth-card">
+          <div class="tabs">
+            <button class="tab active" data-auth-tab="login">登录</button>
+            <button class="tab" data-auth-tab="register">邀请码注册</button>
+          </div>
+          <form id="login-form">
+            <label for="login-username">用户名</label>
+            <input id="login-username" autocomplete="username" required />
+            <label for="login-password">密码</label>
+            <input
+              id="login-password"
+              type="password"
+              autocomplete="current-password"
+              required
+            />
+            <button class="button primary" type="submit">登录</button>
+          </form>
+          <form id="register-form" class="hidden">
+            <label for="invite-code">邀请码</label>
+            <input id="invite-code" autocomplete="off" required />
+            <label for="register-username">用户名</label>
+            <input id="register-username" autocomplete="username" required />
+            <label for="register-password">密码（至少 10 位）</label>
+            <input
+              id="register-password"
+              type="password"
+              autocomplete="new-password"
+              minlength="10"
+              required
+            />
+            <button class="button primary" type="submit">注册</button>
+          </form>
+        </article>
+      </section>
+
+      <section id="password-view" class="card narrow hidden">
+        <p class="step">SECURITY</p>
+        <h2>修改临时密码</h2>
+        <p class="muted">继续使用前，请先设置你自己的密码。</p>
+        <form id="password-form">
+          <label for="current-password">当前临时密码</label>
+          <input id="current-password" type="password" required />
+          <label for="new-password">新密码（至少 10 位）</label>
+          <input id="new-password" type="password" minlength="10" required />
+          <button class="button primary" type="submit">保存新密码</button>
+        </form>
+      </section>
+
+      <section id="app-view" class="hidden">
+        <section class="notice">
+          <span class="notice-mark">i</span>
+          <p>同一 UMO 的工作簿由关联用户共享，你填写的备注仅自己可见。</p>
+        </section>
+
+        <section class="grid">
+          <article class="card">
+            <div class="card-heading">
+              <div><p class="step">STEP 01</p><h2>群聊</h2></div>
+              <span id="group-count" class="count">0</span>
+            </div>
+            <label for="group-select">可访问群聊</label>
+            <select id="group-select"></select>
+            <dl id="group-details" class="details"></dl>
+            <div id="remark-panel" class="hidden">
+              <label for="group-remark">我的私有备注</label>
+              <div class="inline">
+                <input id="group-remark" maxlength="200" />
+                <button id="save-remark" class="button secondary">保存</button>
+              </div>
+            </div>
+            <details class="panel">
+              <summary>关联群聊 UMO</summary>
+              <label for="manual-umo">群聊 UMO</label>
+              <input
+                id="manual-umo"
+                maxlength="512"
+                placeholder="平台实例:GroupMessage:群会话ID"
+              />
+              <label for="manual-remark">我的备注（可选）</label>
+              <input id="manual-remark" maxlength="200" />
+              <button id="link-group" class="button secondary full">关联</button>
+            </details>
+            <button id="remove-group" class="button danger full"></button>
+          </article>
+
+          <article class="card">
+            <div class="card-heading">
+              <div><p class="step">STEP 02</p><h2>导入工作簿</h2></div>
+              <span class="badge">.xlsx</span>
+            </div>
+            <fieldset>
+              <label class="radio">
+                <input type="radio" name="mode" value="add" checked />
+                <span><strong>新增</strong><small>保留已有工作簿</small></span>
+              </label>
+              <label class="radio">
+                <input type="radio" name="mode" value="replace" />
+                <span><strong>替换</strong><small>替换指定工作簿</small></span>
+              </label>
+            </fieldset>
+            <div id="replace-panel" class="hidden">
+              <label for="replace-select">要替换的工作簿</label>
+              <select id="replace-select"></select>
+            </div>
+            <label for="file-input">Excel 文件</label>
+            <input id="file-input" type="file" accept=".xlsx" />
+            <p class="hint">最多 10 MiB，仅保存解析后的标准化数据。</p>
+            <button id="upload-button" class="button primary">开始导入</button>
+          </article>
+        </section>
+
+        <section class="card section-card">
+          <div class="card-heading">
+            <div><p class="step">CURRENT DATA</p><h2>已导入工作簿</h2></div>
+            <span id="workbook-count" class="count">0</span>
+          </div>
+          <div id="workbook-list" class="list"></div>
+        </section>
+
+        <section id="admin-view" class="admin-grid hidden">
+          <article class="card">
+            <div class="card-heading">
+              <div><p class="step">ADMIN</p><h2>普通账号</h2></div>
+              <span id="user-count" class="count">0</span>
+            </div>
+            <div class="inline">
+              <input id="new-username" placeholder="新用户名" />
+              <button id="create-user" class="button secondary">创建</button>
+            </div>
+            <div id="user-list" class="list compact-list"></div>
+          </article>
+          <article class="card">
+            <div class="card-heading">
+              <div><p class="step">ADMIN</p><h2>注册邀请码</h2></div>
+              <button id="create-invite" class="button secondary">生成</button>
+            </div>
+            <div id="invite-list" class="list compact-list"></div>
+          </article>
+        </section>
+      </section>
+    </main>
+
+    <dialog id="dialog">
+      <form method="dialog">
+        <h2 id="dialog-title">提示</h2>
+        <p id="dialog-message"></p>
+        <div class="dialog-actions">
+          <button class="button secondary" value="cancel">取消</button>
+          <button id="dialog-confirm" class="button danger" value="confirm">
+            确认
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <div id="feedback" class="feedback hidden"></div>
+    <script type="module" src="/assets/app.js"></script>
+  </body>
+</html>

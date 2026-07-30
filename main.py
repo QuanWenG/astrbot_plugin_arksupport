@@ -1,5 +1,5 @@
 import asyncio
-import hashlib
+import uuid
 from collections import defaultdict
 from difflib import get_close_matches
 from pathlib import Path
@@ -15,15 +15,27 @@ from astrbot.api.web import (
 )
 from astrbot.core.star.filter.command import GreedyStr
 
+from .arksupport.accounts import AccountStore
+from .arksupport.auth import (
+    generate_temporary_password,
+    generate_token,
+    hash_password,
+    token_digest,
+)
+from .arksupport.formatting import (
+    append_data_update_footer,
+    format_support_entry,
+)
 from .arksupport.llm_matcher import (
     build_operator_match_prompt,
     parse_operator_match,
 )
-from .arksupport.parser import normalize_operator_name, parse_workbook
+from .arksupport.parser import normalize_operator_name
+from .arksupport.services import MAX_UPLOAD_BYTES, WorkbookService
+from .arksupport.standalone import StandaloneWebServer
 from .arksupport.storage import SupportStore
 
 PLUGIN_NAME = "astrbot_plugin_arksupport"
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_QUERY_RESULTS = 20
 
 
@@ -40,7 +52,11 @@ class ArkSupportPlugin(Star):
         data_dir = StarTools.get_data_dir(PLUGIN_NAME)
         self.store = SupportStore(data_dir / "arksupport.sqlite3")
         self.store.initialize()
+        self.account_store = AccountStore(data_dir / "arksupport.sqlite3")
+        self.account_store.initialize()
         self._write_lock = asyncio.Lock()
+        self.workbook_service = WorkbookService(self.store, self._write_lock)
+        self.standalone_server: StandaloneWebServer | None = None
 
         context.register_web_api(
             f"/{PLUGIN_NAME}/groups",
@@ -90,6 +106,79 @@ class ArkSupportPlugin(Star):
             ["POST"],
             "Delete a support workbook",
         )
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/accounts",
+            self.web_accounts,
+            ["GET"],
+            "List standalone web accounts",
+        )
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/accounts/create",
+            self.web_create_account,
+            ["POST"],
+            "Create a standalone web account",
+        )
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/accounts/<user_id>/active",
+            self.web_account_active,
+            ["POST"],
+            "Enable or disable a standalone account",
+        )
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/accounts/<user_id>/reset-password",
+            self.web_account_reset_password,
+            ["POST"],
+            "Reset a standalone account password",
+        )
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/accounts/<user_id>/role",
+            self.web_account_role,
+            ["POST"],
+            "Change a standalone account role",
+        )
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/invites",
+            self.web_invites,
+            ["GET", "POST"],
+            "Manage standalone registration invites",
+        )
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/invites/<invite_id>/delete",
+            self.web_revoke_invite,
+            ["POST"],
+            "Revoke a registration invite",
+        )
+
+    async def initialize(self) -> None:
+        """Start the optional standalone web server."""
+        if not bool(self.config.get("standalone_web_enabled", False)):
+            return
+        host = str(
+            self.config.get("standalone_web_host", "0.0.0.0") or "0.0.0.0"
+        ).strip()
+        port = int(self.config.get("standalone_web_port", 12226) or 12226)
+        if not 1 <= port <= 65535:
+            self.logger.error("独立站点端口无效：%s", port)
+            return
+        self.standalone_server = StandaloneWebServer(
+            support_store=self.store,
+            account_store=self.account_store,
+            workbook_service=self.workbook_service,
+            static_dir=Path(__file__).parent / "standalone",
+            logger=self.logger,
+            host=host,
+            port=port,
+            secure_cookie=bool(
+                self.config.get("standalone_secure_cookie", False)
+            ),
+        )
+        await self.standalone_server.start()
+
+    async def terminate(self) -> None:
+        """Stop the optional standalone listener."""
+        if self.standalone_server:
+            await self.standalone_server.stop()
+            self.standalone_server = None
 
     @filter.command("助战登记")
     async def register_support_group(self, event: AstrMessageEvent):
@@ -183,18 +272,27 @@ class ArkSupportPlugin(Star):
                     if display_name not in suggestions:
                         suggestions.append(display_name)
             if suggestions:
-                yield event.plain_result(
+                message = (
                     f"未找到“{requested_name}”。你可能想查询："
                     + "、".join(suggestions[:5])
                 )
             else:
-                yield event.plain_result(f"未找到干员“{requested_name}”。")
+                message = f"未找到干员“{requested_name}”。"
+            yield event.plain_result(
+                append_data_update_footer(
+                    message,
+                    result["last_updated_at"],
+                )
+            )
             return
         if not result["entries"]:
             display_name = "、".join(result["matched_names"])
             prefix = f"{llm_interpretation}\n" if llm_interpretation else ""
             yield event.plain_result(
-                f"{prefix}{display_name} 当前没有助战记录。"
+                append_data_update_footer(
+                    f"{prefix}{display_name} 当前没有助战记录。",
+                    result["last_updated_at"],
+                )
             )
             return
 
@@ -205,7 +303,7 @@ class ArkSupportPlugin(Star):
                 entry["server"],
                 entry["account"],
                 entry["training"],
-                entry["source_group_name"],
+                entry["member_nickname"],
                 entry["note"],
             )
             if key in seen:
@@ -222,22 +320,22 @@ class ArkSupportPlugin(Star):
         if llm_interpretation:
             lines.append(llm_interpretation)
         lines.append(f"{display_name} 的助战提供者：")
-        for server, entries in grouped.items():
+        for server_index, (server, entries) in enumerate(grouped.items()):
+            if server_index:
+                lines.append("")
             lines.append(f"【{server}】")
             for entry in entries:
-                details = [entry["account"]]
-                if entry["training"]:
-                    details.append(f"练度：{entry['training']}")
-                if entry["source_group_name"]:
-                    details.append(f"群：{entry['source_group_name']}")
-                if entry["note"]:
-                    details.append(f"备注：{entry['note']}")
-                lines.append("- " + "｜".join(details))
+                lines.append("• " + format_support_entry(entry))
 
         omitted = len(unique_entries) - MAX_QUERY_RESULTS
         if omitted > 0:
             lines.append(f"另有 {omitted} 条结果未展示。")
-        yield event.plain_result("\n".join(lines))
+        yield event.plain_result(
+            append_data_update_footer(
+                "\n".join(lines),
+                result["last_updated_at"],
+            )
+        )
 
     async def _match_operator_with_llm(
         self,
@@ -372,17 +470,12 @@ class ArkSupportPlugin(Star):
     ):
         try:
             filename, content = await self._read_uploaded_workbook()
-            imported = await asyncio.to_thread(parse_workbook, content)
-            digest = hashlib.sha256(content).hexdigest()
-            async with self._write_lock:
-                saved = await asyncio.to_thread(
-                    self.store.import_workbook,
-                    binding_id=binding_id,
-                    filename=filename,
-                    sha256=digest,
-                    imported=imported,
-                    workbook_id=workbook_id,
-                )
+            saved = await self.workbook_service.import_bytes(
+                binding_id=binding_id,
+                filename=filename,
+                content=content,
+                workbook_id=workbook_id,
+            )
             return json_response(saved)
         except ValueError as exc:
             return error_response(str(exc))
@@ -417,3 +510,107 @@ class ArkSupportPlugin(Star):
         if not deleted:
             return error_response("指定工作簿不存在。", status_code=404)
         return json_response({"deleted": True})
+
+    async def web_accounts(self):
+        """List all standalone accounts for the AstrBot super administrator."""
+        users = await asyncio.to_thread(
+            self.account_store.list_users,
+            include_admins=True,
+        )
+        return json_response({"users": users})
+
+    async def web_create_account(self):
+        """Create an account with a one-time temporary password."""
+        payload = await request.json(default={})
+        if not isinstance(payload, dict):
+            return error_response("请求内容必须是 JSON object。")
+        temporary_password = generate_temporary_password()
+        try:
+            user = await asyncio.to_thread(
+                self.account_store.create_user,
+                username=str(payload.get("username", "")),
+                password_hash=await asyncio.to_thread(
+                    hash_password,
+                    temporary_password,
+                ),
+                role=str(payload.get("role", "user")),
+                must_change_password=True,
+            )
+            return json_response(
+                {"user": user, "temporary_password": temporary_password}
+            )
+        except ValueError as exc:
+            return error_response(str(exc))
+
+    async def web_account_active(self, user_id: str):
+        payload = await request.json(default={})
+        active = (
+            bool(payload.get("active", False))
+            if isinstance(payload, dict)
+            else False
+        )
+        user = await asyncio.to_thread(
+            self.account_store.set_user_active,
+            user_id,
+            active,
+            allow_admin_target=True,
+        )
+        if not user:
+            return error_response("账号不存在。", status_code=404)
+        return json_response({"user": user})
+
+    async def web_account_reset_password(self, user_id: str):
+        temporary_password = generate_temporary_password()
+        user = await asyncio.to_thread(
+            self.account_store.set_password,
+            user_id,
+            await asyncio.to_thread(hash_password, temporary_password),
+            must_change_password=True,
+            allow_admin_target=True,
+        )
+        if not user:
+            return error_response("账号不存在。", status_code=404)
+        return json_response(
+            {"user": user, "temporary_password": temporary_password}
+        )
+
+    async def web_account_role(self, user_id: str):
+        payload = await request.json(default={})
+        role = str(payload.get("role", "")) if isinstance(payload, dict) else ""
+        try:
+            user = await asyncio.to_thread(
+                self.account_store.set_user_role,
+                user_id,
+                role,
+            )
+        except ValueError as exc:
+            return error_response(str(exc))
+        if not user:
+            return error_response("账号不存在。", status_code=404)
+        return json_response({"user": user})
+
+    async def web_invites(self):
+        if request.method == "GET":
+            invites = await asyncio.to_thread(
+                self.account_store.list_invites,
+                include_all=True,
+            )
+            return json_response({"invites": invites})
+        code = generate_token(18)
+        invite = await asyncio.to_thread(
+            self.account_store.create_invite,
+            invite_id=uuid.uuid4().hex,
+            code_hash=token_digest(code),
+            creator_user_id=None,
+        )
+        return json_response({"invite": invite, "code": code})
+
+    async def web_revoke_invite(self, invite_id: str):
+        revoked = await asyncio.to_thread(
+            self.account_store.revoke_invite,
+            invite_id,
+            allow_all=True,
+        )
+        if not revoked:
+            return error_response("有效邀请码不存在。", status_code=404)
+        return json_response({"revoked": True})

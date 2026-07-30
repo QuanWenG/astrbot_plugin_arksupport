@@ -128,6 +128,7 @@ class SupportStore:
                     account TEXT NOT NULL,
                     training TEXT NOT NULL,
                     source_group_name TEXT NOT NULL,
+                    member_nickname TEXT NOT NULL DEFAULT '',
                     note TEXT NOT NULL,
                     FOREIGN KEY (operator_id)
                         REFERENCES operators(id) ON DELETE CASCADE
@@ -151,6 +152,17 @@ class SupportStore:
                 connection.execute(
                     "ALTER TABLE group_bindings "
                     "ADD COLUMN remark TEXT NOT NULL DEFAULT ''"
+                )
+            support_columns = {
+                row["name"]
+                for row in connection.execute(
+                    "PRAGMA table_info(supports)"
+                ).fetchall()
+            }
+            if "member_nickname" not in support_columns:
+                connection.execute(
+                    "ALTER TABLE supports "
+                    "ADD COLUMN member_nickname TEXT NOT NULL DEFAULT ''"
                 )
 
     def register_group(
@@ -249,6 +261,42 @@ class SupportStore:
                         timestamp,
                     ),
                 )
+            row = connection.execute(
+                "SELECT * FROM group_bindings WHERE id = ?",
+                (binding_id,),
+            ).fetchone()
+        return dict(row)
+
+    def ensure_manual_group(self, umo: str) -> dict[str, Any]:
+        """Return or create a group without changing the global admin remark."""
+        normalized_umo = umo.strip()
+        platform_id, group_id = parse_group_umo(normalized_umo)
+        timestamp = _now()
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM group_bindings WHERE umo = ?",
+                (normalized_umo,),
+            ).fetchone()
+            if row:
+                return dict(row)
+            binding_id = uuid.uuid4().hex
+            connection.execute(
+                """
+                INSERT INTO group_bindings (
+                    id, umo, platform_id, group_id, group_name, remark,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, '', ?, ?)
+                """,
+                (
+                    binding_id,
+                    normalized_umo,
+                    platform_id,
+                    group_id,
+                    f"群 {group_id}",
+                    timestamp,
+                    timestamp,
+                ),
+            )
             row = connection.execute(
                 "SELECT * FROM group_bindings WHERE id = ?",
                 (binding_id,),
@@ -434,15 +482,15 @@ class SupportStore:
                     """
                     INSERT INTO supports (
                         operator_id, slot, account, training,
-                        source_group_name, note
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                        source_group_name, member_nickname, note
+                    ) VALUES (?, ?, ?, ?, '', ?, ?)
                     """,
                     (
                         operator_ids[support.operator_index],
                         support.slot,
                         support.account,
                         support.training,
-                        support.group_name,
+                        support.member_nickname,
                         support.note,
                     ),
                 )
@@ -487,16 +535,22 @@ class SupportStore:
                 return {
                     "registered": False,
                     "workbook_count": 0,
+                    "last_updated_at": None,
                     "matched_names": [],
                     "entries": [],
                     "available_names": [],
                 }
 
             binding_id = group["id"]
-            workbook_count = connection.execute(
-                "SELECT COUNT(*) FROM workbooks WHERE group_binding_id = ?",
+            workbook_summary = connection.execute(
+                """
+                SELECT COUNT(*) AS workbook_count,
+                       MAX(imported_at) AS last_updated_at
+                FROM workbooks
+                WHERE group_binding_id = ?
+                """,
                 (binding_id,),
-            ).fetchone()[0]
+            ).fetchone()
             matched_rows = connection.execute(
                 """
                 SELECT DISTINCT o.operator_name
@@ -510,7 +564,7 @@ class SupportStore:
             entries = connection.execute(
                 """
                 SELECT o.server, o.operator_name, o.rarity, o.profession,
-                       s.account, s.training, s.source_group_name, s.note,
+                       s.account, s.training, s.member_nickname, s.note,
                        w.original_filename
                 FROM supports s
                 JOIN operators o ON o.id = s.operator_id
@@ -533,7 +587,8 @@ class SupportStore:
 
         return {
             "registered": True,
-            "workbook_count": int(workbook_count),
+            "workbook_count": int(workbook_summary["workbook_count"]),
+            "last_updated_at": workbook_summary["last_updated_at"],
             "matched_names": [row["operator_name"] for row in matched_rows],
             "entries": [dict(row) for row in entries],
             "available_names": [

@@ -1,3 +1,5 @@
+import { GroupWorkbookController } from "./group-controller.js";
+
 const bridge = window.AstrBotPluginPage;
 
 const elements = {
@@ -21,6 +23,13 @@ const elements = {
   confirmDialog: document.getElementById("confirm-dialog"),
   confirmTitle: document.getElementById("confirm-title"),
   confirmMessage: document.getElementById("confirm-message"),
+  accountCount: document.getElementById("account-count"),
+  accountUsername: document.getElementById("account-username"),
+  accountRole: document.getElementById("account-role"),
+  createAccountButton: document.getElementById("create-account-button"),
+  accountList: document.getElementById("account-list"),
+  createInviteButton: document.getElementById("create-invite-button"),
+  inviteList: document.getElementById("invite-list"),
   feedback: document.getElementById("feedback"),
 };
 
@@ -28,8 +37,28 @@ const state = {
   groups: [],
   workbooks: [],
   selectedGroupId: "",
+  accounts: [],
+  invites: [],
   busy: false,
 };
+
+const groupController = new GroupWorkbookController(state, {
+  async listGroups() {
+    return (await bridge.apiGet("groups")).groups;
+  },
+  async listWorkbooks(bindingId) {
+    return (await bridge.apiGet("tables", { group_id: bindingId })).workbooks;
+  },
+  importWorkbook(bindingId, file) {
+    return bridge.upload(`tables/import/${bindingId}`, file);
+  },
+  replaceWorkbook(workbookId, file) {
+    return bridge.upload(`tables/${workbookId}/replace`, file);
+  },
+  deleteWorkbook(workbookId) {
+    return bridge.apiPost(`tables/${workbookId}/delete`, {});
+  },
+});
 
 function setBusy(busy) {
   state.busy = busy;
@@ -42,6 +71,10 @@ function setBusy(busy) {
   elements.addGroupButton.disabled = busy;
   elements.deleteGroupButton.disabled = busy || !state.selectedGroupId;
   elements.uploadButton.disabled = busy || !state.selectedGroupId;
+  elements.accountUsername.disabled = busy;
+  elements.accountRole.disabled = busy;
+  elements.createAccountButton.disabled = busy;
+  elements.createInviteButton.disabled = busy;
   elements.uploadButton.textContent = busy ? "处理中…" : "开始导入";
 }
 
@@ -214,25 +247,216 @@ async function loadWorkbooks() {
     renderWorkbooks();
     return;
   }
-  const response = await bridge.apiGet("tables", {
-    group_id: state.selectedGroupId,
-  });
-  state.workbooks = response.workbooks ?? [];
+  await groupController.loadWorkbooks();
   renderWorkbooks();
 }
 
 async function refreshAll() {
   setBusy(true);
   try {
-    const response = await bridge.apiGet("groups");
-    state.groups = response.groups ?? [];
+    await groupController.loadGroups();
     renderGroups();
     await loadWorkbooks();
+    await loadSuperAdminData();
   } catch (error) {
     showFeedback(error.message, "error");
   } finally {
     setBusy(false);
     renderWorkbooks();
+  }
+}
+
+function compactAction(label, action, danger = false) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `button ${danger ? "danger ghost" : "secondary"} compact`;
+  button.textContent = label;
+  button.addEventListener("click", action);
+  return button;
+}
+
+function renderAccounts() {
+  elements.accountList.replaceChildren();
+  elements.accountCount.textContent = String(state.accounts.length);
+  if (state.accounts.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "暂无独立站点账号。";
+    elements.accountList.append(empty);
+    return;
+  }
+  for (const account of state.accounts) {
+    const item = document.createElement("article");
+    item.className = "workbook-item account-item";
+    const main = document.createElement("div");
+    main.className = "workbook-main";
+    const name = document.createElement("h3");
+    const meta = document.createElement("p");
+    name.textContent = account.username;
+    meta.textContent =
+      `${account.role === "admin" ? "管理员" : "普通用户"} · ` +
+      `${account.is_active ? "已启用" : "已禁用"}` +
+      `${account.must_change_password ? " · 待修改临时密码" : ""}`;
+    main.append(name, meta);
+
+    const actions = document.createElement("div");
+    actions.className = "account-actions";
+    actions.append(
+      compactAction(
+        account.is_active ? "禁用" : "启用",
+        () => setAccountActive(account, !account.is_active),
+        account.is_active,
+      ),
+      compactAction("重置密码", () => resetAccountPassword(account)),
+      compactAction(
+        account.role === "admin" ? "撤销管理员" : "设为管理员",
+        () =>
+          setAccountRole(
+            account,
+            account.role === "admin" ? "user" : "admin",
+          ),
+      ),
+    );
+    item.append(main, actions);
+    elements.accountList.append(item);
+  }
+}
+
+function renderInvites() {
+  elements.inviteList.replaceChildren();
+  const activeInvites = state.invites.filter(
+    (invite) =>
+      !invite.used_at &&
+      !invite.revoked_at &&
+      new Date(invite.expires_at).getTime() > Date.now(),
+  );
+  if (activeInvites.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "暂无有效邀请码。";
+    elements.inviteList.append(empty);
+    return;
+  }
+  for (const invite of activeInvites) {
+    const item = document.createElement("article");
+    item.className = "workbook-item account-item";
+    const main = document.createElement("div");
+    main.className = "workbook-main";
+    const name = document.createElement("h3");
+    const meta = document.createElement("p");
+    name.textContent = invite.creator_username;
+    meta.textContent = `过期：${new Date(invite.expires_at).toLocaleString()}`;
+    main.append(name, meta);
+    item.append(
+      main,
+      compactAction("撤销", () => revokeInvite(invite), true),
+    );
+    elements.inviteList.append(item);
+  }
+}
+
+async function loadSuperAdminData() {
+  const [accountResult, inviteResult] = await Promise.all([
+    bridge.apiGet("accounts"),
+    bridge.apiGet("invites"),
+  ]);
+  state.accounts = accountResult.users ?? [];
+  state.invites = inviteResult.invites ?? [];
+  renderAccounts();
+  renderInvites();
+}
+
+async function createAccount() {
+  const username = elements.accountUsername.value.trim();
+  if (!username) {
+    showFeedback("请输入用户名。", "error");
+    return;
+  }
+  setBusy(true);
+  try {
+    const result = await bridge.apiPost("accounts/create", {
+      username,
+      role: elements.accountRole.value,
+    });
+    elements.accountUsername.value = "";
+    showFeedback(
+      `账号已创建，临时密码（仅显示一次）：${result.temporary_password}`,
+    );
+    await loadSuperAdminData();
+  } catch (error) {
+    showFeedback(error.message, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function setAccountActive(account, active) {
+  setBusy(true);
+  try {
+    await bridge.apiPost(`accounts/${account.id}/active`, { active });
+    await loadSuperAdminData();
+  } catch (error) {
+    showFeedback(error.message, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function resetAccountPassword(account) {
+  if (!(await confirmAction(`重置“${account.username}”的密码吗？`))) return;
+  setBusy(true);
+  try {
+    const result = await bridge.apiPost(
+      `accounts/${account.id}/reset-password`,
+      {},
+    );
+    showFeedback(`临时密码（仅显示一次）：${result.temporary_password}`);
+    await loadSuperAdminData();
+  } catch (error) {
+    showFeedback(error.message, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function setAccountRole(account, role) {
+  const label = role === "admin" ? "授予管理员权限" : "撤销管理员权限";
+  if (!(await confirmAction(`确定为“${account.username}”${label}吗？`, label))) {
+    return;
+  }
+  setBusy(true);
+  try {
+    await bridge.apiPost(`accounts/${account.id}/role`, { role });
+    await loadSuperAdminData();
+  } catch (error) {
+    showFeedback(error.message, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function createInvite() {
+  setBusy(true);
+  try {
+    const result = await bridge.apiPost("invites", {});
+    showFeedback(`邀请码（仅显示一次，7 天有效）：${result.code}`);
+    await loadSuperAdminData();
+  } catch (error) {
+    showFeedback(error.message, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function revokeInvite(invite) {
+  setBusy(true);
+  try {
+    await bridge.apiPost(`invites/${invite.id}/delete`, {});
+    await loadSuperAdminData();
+  } catch (error) {
+    showFeedback(error.message, "error");
+  } finally {
+    setBusy(false);
   }
 }
 
@@ -253,14 +477,9 @@ async function uploadWorkbook() {
     showFeedback("请选择要替换的工作簿。", "error");
     return;
   }
-  const endpoint =
-    mode === "replace"
-      ? `tables/${replacementId}/replace`
-      : `tables/import/${state.selectedGroupId}`;
-
   setBusy(true);
   try {
-    const result = await bridge.upload(endpoint, file);
+    const result = await groupController.upload(mode, file, replacementId);
     const warningText =
       result.warnings?.length > 0 ? `，${result.warnings.length} 条警告` : "";
     showFeedback(
@@ -325,7 +544,7 @@ async function deleteWorkbook(workbook) {
 
   setBusy(true);
   try {
-    await bridge.apiPost(`tables/${workbook.id}/delete`, {});
+    await groupController.deleteWorkbook(workbook.id);
     showFeedback("工作簿已删除。");
     await refreshAll();
   } catch (error) {
@@ -360,7 +579,7 @@ async function deleteGroup() {
 await bridge.ready();
 elements.refreshButton.addEventListener("click", refreshAll);
 elements.groupSelect.addEventListener("change", async (event) => {
-  state.selectedGroupId = event.target.value;
+  groupController.selectGroup(event.target.value);
   renderGroups();
   setBusy(true);
   try {
@@ -376,6 +595,8 @@ elements.uploadButton.addEventListener("click", uploadWorkbook);
 elements.addGroupButton.addEventListener("click", addManualGroup);
 elements.saveRemarkButton.addEventListener("click", saveGroupRemark);
 elements.deleteGroupButton.addEventListener("click", deleteGroup);
+elements.createAccountButton.addEventListener("click", createAccount);
+elements.createInviteButton.addEventListener("click", createInvite);
 for (const radio of document.querySelectorAll('input[name="mode"]')) {
   radio.addEventListener("change", renderWorkbooks);
 }

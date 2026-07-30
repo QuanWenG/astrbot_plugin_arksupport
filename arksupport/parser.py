@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from zipfile import BadZipFile, ZipFile
 
-ACCOUNT_HEADER = re.compile(r"账号(\d+)")
+SLOT_HEADER = re.compile(r"(账号|练度|群成员昵称|备注)(\d+)")
 CELL_REFERENCE = re.compile(r"([A-Z]+)")
 BASE_HEADERS = ("稀有度", "职业", "干员名")
 MAX_HEADER_SCAN_ROWS = 20
@@ -39,7 +39,7 @@ class SupportRecord:
     slot: int
     account: str
     training: str
-    group_name: str
+    member_nickname: str
     note: str
 
 
@@ -192,21 +192,26 @@ def _find_header(
         if not all(header in headers for header in BASE_HEADERS):
             continue
 
-        slots: dict[int, dict[str, int]] = {}
+        slot_fields = {
+            "账号": "account",
+            "练度": "training",
+            "群成员昵称": "member_nickname",
+            "备注": "note",
+        }
+        discovered_slots: dict[int, dict[str, int]] = {}
         for column, header in enumerate(headers):
-            match = ACCOUNT_HEADER.fullmatch(header)
+            match = SLOT_HEADER.fullmatch(header)
             if not match:
                 continue
-            slot = int(match.group(1))
-            slots.setdefault(slot, {})["account"] = column
-            for field, prefix in (
-                ("training", "练度"),
-                ("group_name", "群名称"),
-                ("note", "备注"),
-            ):
-                numbered_header = f"{prefix}{slot}"
-                if numbered_header in headers:
-                    slots[slot][field] = headers.index(numbered_header)
+            prefix, slot_text = match.groups()
+            slot = int(slot_text)
+            discovered_slots.setdefault(slot, {})[slot_fields[prefix]] = column
+
+        slots = {
+            slot: columns
+            for slot, columns in discovered_slots.items()
+            if "account" in columns
+        }
         if slots:
             return row_number, headers, slots
     return None
@@ -296,7 +301,7 @@ def parse_workbook(content: bytes) -> WorkbookImport:
                     row[account_column] if account_column < len(row) else None
                 )
                 values: dict[str, str] = {}
-                for field in ("training", "group_name", "note"):
+                for field in ("training", "member_nickname", "note"):
                     column = columns.get(field)
                     values[field] = _cell_text(
                         row[column]
@@ -318,7 +323,7 @@ def parse_workbook(content: bytes) -> WorkbookImport:
                         slot=slot,
                         account=account,
                         training=values["training"],
-                        group_name=values["group_name"],
+                        member_nickname=values["member_nickname"],
                         note=values["note"],
                     )
                 )

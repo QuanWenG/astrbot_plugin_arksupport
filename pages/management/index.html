@@ -140,6 +140,49 @@
         </div>
       </section>
 
+      <section class="admin-grid">
+        <article class="card">
+          <div class="card-heading">
+            <div>
+              <p class="step">SUPER ADMIN</p>
+              <h2>独立站点账号</h2>
+            </div>
+            <span id="account-count" class="count">0</span>
+          </div>
+          <div class="account-create">
+            <input
+              id="account-username"
+              type="text"
+              maxlength="32"
+              placeholder="用户名"
+            />
+            <select id="account-role">
+              <option value="user">普通用户</option>
+              <option value="admin">管理员</option>
+            </select>
+            <button id="create-account-button" class="button secondary" type="button">
+              创建账号
+            </button>
+          </div>
+          <p class="hint">创建后会生成仅显示一次的临时密码。</p>
+          <div id="account-list" class="workbook-list"></div>
+        </article>
+
+        <article class="card">
+          <div class="card-heading">
+            <div>
+              <p class="step">SUPER ADMIN</p>
+              <h2>注册邀请码</h2>
+            </div>
+            <button id="create-invite-button" class="button secondary" type="button">
+              生成邀请码
+            </button>
+          </div>
+          <p class="hint">邀请码单次使用，默认 7 天有效。</p>
+          <div id="invite-list" class="workbook-list"></div>
+        </article>
+      </section>
+
       <dialog id="confirm-dialog" class="confirm-dialog">
         <form method="dialog">
           <div class="dialog-mark">!</div>

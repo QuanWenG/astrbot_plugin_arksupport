@@ -19,14 +19,28 @@ class WorkbookParserTest(unittest.TestCase):
                         "干员名",
                         "账号1",
                         "练度1",
+                        "群成员昵称1",
                         "备注1",
                         "账号2",
                         "练度2",
+                        "群成员昵称2",
                         "备注2",
                     ],
-                    ["6★", "先锋", "风笛", "玩家甲#1234", "全满", "", None, "", ""],
-                    ["6★", "近卫", "维娜 维多利亚", None, "", "", "玩家乙", "精二", "二技能"],
-                    ["6★", "术士", "艾雅法拉", None, "", "", None, "", ""],
+                    [
+                        "6★", "先锋", "风笛",
+                        "玩家甲#1234", "全满", "甲昵称", "",
+                        None, "", "", "",
+                    ],
+                    [
+                        "6★", "近卫", "维娜 维多利亚",
+                        None, "", "", "",
+                        "玩家乙", "精二", "乙昵称", "二技能",
+                    ],
+                    [
+                        "6★", "术士", "艾雅法拉",
+                        None, "", "", "",
+                        None, "", "", "",
+                    ],
                 ],
                 "B服": [
                     [
@@ -35,7 +49,7 @@ class WorkbookParserTest(unittest.TestCase):
                         "干员名",
                         "账号1",
                         "练度1",
-                        "群名称1",
+                        "群成员昵称1",
                         "备注1",
                     ],
                     ["6★", "先锋", "风笛", "玩家丙", "全满", "测试群", "满模组"],
@@ -49,9 +63,71 @@ class WorkbookParserTest(unittest.TestCase):
         self.assertEqual(len(result.operators), 4)
         self.assertEqual(len(result.supports), 3)
         self.assertEqual(result.supports[1].slot, 2)
-        self.assertEqual(result.supports[2].group_name, "测试群")
+        self.assertEqual(result.supports[2].member_nickname, "测试群")
         self.assertEqual(len(result.warnings), 1)
         self.assertIn("说明", result.warnings[0])
+
+    def test_groups_arbitrary_numbered_slots_by_header_suffix(self) -> None:
+        content = make_xlsx(
+            {
+                "官服": [
+                    [
+                        "稀有度",
+                        "职业",
+                        "干员名",
+                        "备注4",
+                        "群成员昵称4",
+                        "练度4",
+                        "账号4",
+                        "账号12",
+                        "群成员昵称12",
+                        "备注12",
+                        "练度12",
+                    ],
+                    [
+                        "6★",
+                        "先锋",
+                        "风笛",
+                        "四号备注",
+                        "四号昵称",
+                        "四号练度",
+                        "四号账号",
+                        "十二号账号",
+                        "十二号昵称",
+                        "十二号备注",
+                        "十二号练度",
+                    ],
+                ]
+            }
+        )
+
+        result = parse_workbook(content)
+
+        self.assertEqual([item.slot for item in result.supports], [4, 12])
+        self.assertEqual(result.supports[0].member_nickname, "四号昵称")
+        self.assertEqual(result.supports[1].training, "十二号练度")
+
+    def test_does_not_treat_legacy_group_name_as_member_nickname(self) -> None:
+        content = make_xlsx(
+            {
+                "官服": [
+                    [
+                        "稀有度",
+                        "职业",
+                        "干员名",
+                        "账号1",
+                        "练度1",
+                        "群名称1",
+                        "备注1",
+                    ],
+                    ["6★", "先锋", "风笛", "玩家甲", "全满", "旧群名", ""],
+                ]
+            }
+        )
+
+        result = parse_workbook(content)
+
+        self.assertEqual(result.supports[0].member_nickname, "")
 
     def test_warns_about_orphan_slot_fields(self) -> None:
         content = make_xlsx(
@@ -87,4 +163,3 @@ class WorkbookParserTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from re import fullmatch
 
 from arksupport.parser import (
     SupportRecord,
@@ -24,9 +25,33 @@ def parsed(account: str) -> WorkbookImport:
         make_xlsx(
             {
                 "官服": [
-                    ["稀有度", "职业", "干员名", "账号1", "练度1", "备注1"],
-                    ["6★", "先锋", "风笛", account, "全满", "测试"],
-                    ["6★", "术士", "艾雅法拉", None, None, None],
+                    [
+                        "稀有度",
+                        "职业",
+                        "干员名",
+                        "账号1",
+                        "练度1",
+                        "群成员昵称1",
+                        "备注1",
+                    ],
+                    [
+                        "6★",
+                        "先锋",
+                        "风笛",
+                        account,
+                        "全满",
+                        f"{account}昵称",
+                        "测试",
+                    ],
+                    [
+                        "6★",
+                        "术士",
+                        "艾雅法拉",
+                        None,
+                        None,
+                        None,
+                        None,
+                    ],
                 ]
             }
         )
@@ -81,6 +106,13 @@ class SupportStoreTest(unittest.TestCase):
 
         self.assertEqual([item["account"] for item in first["entries"]], ["玩家甲"])
         self.assertEqual([item["account"] for item in second["entries"]], ["玩家乙"])
+        self.assertEqual(first["entries"][0]["member_nickname"], "玩家甲昵称")
+        self.assertIsNotNone(
+            fullmatch(
+                r"\d{4}-\d{2}-\d{2}T.+",
+                first["last_updated_at"],
+            )
+        )
 
     def test_manual_group_remark_survives_chat_registration(self) -> None:
         manual = self.store.add_manual_group(
@@ -167,7 +199,7 @@ class SupportStoreTest(unittest.TestCase):
                 slot=2,
                 account="损坏记录",
                 training="",
-                group_name="",
+                member_nickname="",
                 note="",
             )
         )
@@ -255,6 +287,44 @@ class GroupBindingValidationTest(unittest.TestCase):
             }
             check.close()
             self.assertIn("remark", columns)
+
+    def test_initialize_adds_member_nickname_to_legacy_supports(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "legacy-supports.sqlite3"
+            connection = sqlite3.connect(database_path)
+            connection.execute(
+                """
+                CREATE TABLE supports (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    operator_id INTEGER NOT NULL,
+                    slot INTEGER NOT NULL,
+                    account TEXT NOT NULL,
+                    training TEXT NOT NULL,
+                    source_group_name TEXT NOT NULL,
+                    note TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO supports (
+                    operator_id, slot, account, training,
+                    source_group_name, note
+                ) VALUES (1, 1, '旧账号', '全满', '旧群名', '旧备注')
+                """
+            )
+            connection.commit()
+            connection.close()
+
+            store = SupportStore(database_path)
+            store.initialize()
+
+            check = sqlite3.connect(database_path)
+            row = check.execute(
+                "SELECT account, member_nickname FROM supports"
+            ).fetchone()
+            check.close()
+            self.assertEqual(row, ("旧账号", ""))
 
 
 if __name__ == "__main__":

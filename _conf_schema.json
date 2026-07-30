@@ -11,5 +11,29 @@
     "default": "",
     "_special": "select_provider",
     "hint": "留空时使用该群当前会话的模型提供商。"
+  },
+  "standalone_web_enabled": {
+    "type": "bool",
+    "description": "启用独立多用户管理站点",
+    "default": false,
+    "hint": "启用后将启动带注册、登录和权限控制的独立网页。首次使用请先在插件管理页生成邀请码。"
+  },
+  "standalone_web_host": {
+    "type": "string",
+    "description": "独立站点监听地址",
+    "default": "0.0.0.0",
+    "hint": "0.0.0.0 允许局域网或公网访问；仅本机反向代理时可改为 127.0.0.1。"
+  },
+  "standalone_web_port": {
+    "type": "int",
+    "description": "独立站点端口",
+    "default": 12226,
+    "hint": "修改后需要重载插件。"
+  },
+  "standalone_secure_cookie": {
+    "type": "bool",
+    "description": "仅通过 HTTPS 发送登录 Cookie",
+    "default": false,
+    "hint": "使用 Nginx/Caddy 等提供 HTTPS 时应开启；直接使用 HTTP 访问时不要开启。"
   }
 }
