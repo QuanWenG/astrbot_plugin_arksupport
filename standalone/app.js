@@ -82,6 +82,7 @@ function feedback(message, error = false) {
 function confirmAction(message, title = "确认操作") {
   elements.dialogTitle.textContent = title;
   elements.dialogMessage.textContent = message;
+  elements.dialog.querySelector("#dialog-confirm").textContent = title;
   elements.dialog.returnValue = "cancel";
   elements.dialog.showModal();
   return new Promise((resolve) => {
@@ -249,10 +250,32 @@ function renderUsers(users) {
         user.is_active,
       ),
       itemButton("重置密码", () => resetPassword(user)),
+      itemButton(
+        user.role === "admin" ? "撤销管理员" : "设为管理员",
+        () => setUserRole(user, user.role === "admin" ? "user" : "admin"),
+      ),
+      itemButton("删除账号", () => deleteUser(user), true),
     );
     item.append(main, actions);
     elements.userList.append(item);
   }
+}
+
+async function setUserRole(user, role) {
+  const label = role === "admin" ? "授予管理员权限" : "撤销管理员权限";
+  if (!(await confirmAction(`确定为 "${user.username}" ${label}吗？`, label))) return;
+  try {
+    await api(`/admin/users/${user.id}/role`, { method: "POST", body: { role } });
+    await refreshAdmin();
+  } catch (error) { feedback(error.message, true); }
+}
+
+async function deleteUser(user) {
+  if (!(await confirmAction(`确定永久删除 "${user.username}" 吗？此操作不可撤销。`, "删除账号"))) return;
+  try {
+    await api(`/admin/users/${user.id}`, { method: "DELETE", body: {} });
+    await refreshAdmin();
+  } catch (error) { feedback(error.message, true); }
 }
 
 function renderInvites(invites) {

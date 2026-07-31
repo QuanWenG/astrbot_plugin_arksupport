@@ -4,6 +4,7 @@ from collections import defaultdict
 from difflib import get_close_matches
 from pathlib import Path
 
+from typing import TYPE_CHECKING
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools
@@ -32,8 +33,10 @@ from .arksupport.llm_matcher import (
 )
 from .arksupport.parser import normalize_operator_name
 from .arksupport.services import MAX_UPLOAD_BYTES, WorkbookService
-from .arksupport.standalone import StandaloneWebServer
 from .arksupport.storage import SupportStore
+
+if TYPE_CHECKING:
+    from .arksupport.standalone import StandaloneWebServer
 
 PLUGIN_NAME = "astrbot_plugin_arksupport"
 MAX_QUERY_RESULTS = 20
@@ -48,6 +51,9 @@ class ArkSupportPlugin(Star):
         config: AstrBotConfig | None = None,
     ) -> None:
         super().__init__(context, config)
+        if not hasattr(self, "logger"):
+            import logging
+            self.logger = logging.getLogger("astrbot")
         self.config = config if config is not None else {}
         data_dir = StarTools.get_data_dir(PLUGIN_NAME)
         self.store = SupportStore(data_dir / "arksupport.sqlite3")
@@ -56,7 +62,7 @@ class ArkSupportPlugin(Star):
         self.account_store.initialize()
         self._write_lock = asyncio.Lock()
         self.workbook_service = WorkbookService(self.store, self._write_lock)
-        self.standalone_server: StandaloneWebServer | None = None
+        self.standalone_server: "StandaloneWebServer | None" = None
 
         context.register_web_api(
             f"/{PLUGIN_NAME}/groups",
@@ -148,11 +154,18 @@ class ArkSupportPlugin(Star):
             ["POST"],
             "Revoke a registration invite",
         )
+        context.register_web_api(
+            f"/{PLUGIN_NAME}/accounts/<user_id>/delete",
+            self.web_delete_account,
+            ["POST"],
+            "Permanently delete an account",
+        )
 
     async def initialize(self) -> None:
         """Start the optional standalone web server."""
         if not bool(self.config.get("standalone_web_enabled", False)):
             return
+        from .arksupport.standalone import StandaloneWebServer
         host = str(
             self.config.get("standalone_web_host", "0.0.0.0") or "0.0.0.0"
         ).strip()
@@ -588,6 +601,16 @@ class ArkSupportPlugin(Star):
         if not user:
             return error_response("账号不存在。", status_code=404)
         return json_response({"user": user})
+
+    async def web_delete_account(self, user_id: str):
+        "Permanently delete a standalone web account (cannot delete admins)."
+        deleted = await asyncio.to_thread(
+            self.account_store.delete_user,
+            user_id,
+        )
+        if not deleted:
+            return error_response("无法删除该账号（管理员账号不可删除或账号不存在）。", status_code=404)
+        return json_response({"deleted": True})
 
     async def web_invites(self):
         if request.method == "GET":

@@ -21,6 +21,7 @@ const elements = {
   workbookCount: document.getElementById("workbook-count"),
   workbookList: document.getElementById("workbook-list"),
   confirmDialog: document.getElementById("confirm-dialog"),
+  confirmButton: document.getElementById("confirm-button"),
   confirmTitle: document.getElementById("confirm-title"),
   confirmMessage: document.getElementById("confirm-message"),
   accountCount: document.getElementById("account-count"),
@@ -99,6 +100,7 @@ function confirmAction(message, title = "确认删除") {
   return new Promise((resolve) => {
     elements.confirmTitle.textContent = title;
     elements.confirmMessage.textContent = message;
+    elements.confirmButton.textContent = title;
     elements.confirmDialog.returnValue = "cancel";
     elements.confirmDialog.addEventListener(
       "close",
@@ -316,6 +318,7 @@ function renderAccounts() {
             account.role === "admin" ? "user" : "admin",
           ),
       ),
+      compactAction("删除账号", () => deleteAccount(account), true),
     );
     item.append(main, actions);
     elements.accountList.append(item);
@@ -427,6 +430,21 @@ async function setAccountRole(account, role) {
   setBusy(true);
   try {
     await bridge.apiPost(`accounts/${account.id}/role`, { role });
+    await loadSuperAdminData();
+  } catch (error) {
+    showFeedback(error.message, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+
+async function deleteAccount(account) {
+  if (!(await confirmAction(`确定删除账号 "${account.username}" 吗？此操作不可撤销。`, "删除账号"))) return;
+  setBusy(true);
+  try {
+    await bridge.apiPost(`accounts/${account.id}/delete`, {});
+    showFeedback("账号已删除。");
     await loadSuperAdminData();
   } catch (error) {
     showFeedback(error.message, "error");

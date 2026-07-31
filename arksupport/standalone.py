@@ -173,6 +173,14 @@ class StandaloneWebServer:
                 "/api/admin/users/{user_id}/reset-password",
                 self.admin_reset_password,
             ),
+            web.post(
+                "/api/admin/users/{user_id}/role",
+                self.admin_set_role,
+            ),
+            web.delete(
+                "/api/admin/users/{user_id}",
+                self.admin_delete_user,
+            ),
             web.get("/api/admin/invites", self.admin_invites),
             web.post("/api/admin/invites", self.admin_create_invite),
             web.delete(
@@ -600,6 +608,32 @@ class StandaloneWebServer:
         return web.json_response(
             {"user": user, "temporary_password": temporary_password}
         )
+
+    async def admin_set_role(self, request):
+        self._require_admin(request)
+        payload = await self._json(request)
+        role = str(payload.get("role", ""))
+        try:
+            user = await asyncio.to_thread(
+                self.account_store.set_user_role,
+                request.match_info["user_id"],
+                role,
+            )
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc))
+        if not user:
+            raise web.HTTPNotFound(text="普通账号不存在。")
+        return web.json_response({"user": user})
+
+    async def admin_delete_user(self, request):
+        self._require_admin(request)
+        deleted = await asyncio.to_thread(
+            self.account_store.delete_user,
+            request.match_info["user_id"],
+        )
+        if not deleted:
+            raise web.HTTPNotFound(text="无法删除该账号（管理员账号不可删除或账号不存在）。")
+        return web.json_response({"deleted": True})
 
     async def admin_invites(self, request):
         self._require_admin(request)

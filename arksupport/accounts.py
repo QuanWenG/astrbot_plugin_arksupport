@@ -564,6 +564,15 @@ class AccountStore:
             )
         return cursor.rowcount > 0
 
+    def delete_user(self, user_id: str) -> bool:
+        "Permanently delete a user, their sessions, invites, and group access."
+        with self._connection() as connection:
+            connection.execute("DELETE FROM web_sessions WHERE user_id = ?", (user_id,))
+            connection.execute("DELETE FROM registration_invites WHERE created_by_user_id = ? OR used_by_user_id = ?", (user_id, user_id))
+            connection.execute("DELETE FROM user_group_access WHERE user_id = ?", (user_id,))
+            cursor = connection.execute("DELETE FROM web_users WHERE id = ? AND role != 'admin'", (user_id,))
+        return cursor.rowcount > 0
+
     def can_access_group(
         self,
         *,
